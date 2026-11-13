@@ -1,0 +1,16 @@
+# Development toolchain. `mise install` puts the same Node.js that CI uses in PATH; the code itself has no runtime
+# dependencies, so nothing else is needed to run it.
+[tools]
+node = "24"
+
+[tasks.test]
+description = "Run the tests for this change"
+run = "npm run test:quick"
+
+[tasks.typecheck]
+description = "Type-check without emitting"
+run = "npm run typecheck"
+
+[tasks.format]
+description = "Check formatting"
+run = "npm run format:check"

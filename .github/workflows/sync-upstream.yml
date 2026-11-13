@@ -1,0 +1,51 @@
+name: sync-upstream
+# Brings the upstream repository's main into this fork. A merge keeps every commit made here; when the two sides
+# touch the same lines the run stops before anything is pushed, so a scheduled sync never overwrites local work.
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+      - id: merge
+        name: Merge upstream main
+        env:
+          UPSTREAM: https://github.com/KKKKhazix/agent-autoloop.git
+        run: |
+          git remote add upstream "$UPSTREAM"
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "main already contains upstream/main."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git merge --no-edit upstream/main; then
+            git merge --abort
+            echo "::error::upstream/main conflicts with local commits on main; main was left unchanged."
+            exit 1
+          fi
+          git push origin HEAD:main
+          echo "synced=true" >> "$GITHUB_OUTPUT"
+      # A push made with GITHUB_TOKEN does not start check.yml, so ask for it explicitly.
+      - if: steps.merge.outputs.synced == 'true'
+        name: Check the synced main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run check.yml --ref main
