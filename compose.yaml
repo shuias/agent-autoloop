@@ -1,4 +1,4 @@
-# 中台 + 本地管理页面。先跑一次 init 建好卷里的配置和密钥，再 up：
+# 中台 + 本地管理页面。镜像里没有命令行 Agent：先把你的 Agent 装进 hub 阶段，再跑一次 init 建好卷里的配置和密钥，然后 up：
 #   docker compose run --rm hub init --no-service --command '<你的命令行 Agent> {prompt}'
 #   echo "OWNER_KEY=$(docker compose run --rm --entrypoint node hub -e 'console.log(JSON.parse(require("fs").readFileSync("/data/config.json","utf8")).owner)')" > .env.console
 #   docker compose up --build

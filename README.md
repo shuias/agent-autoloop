@@ -16,7 +16,7 @@
 
 - **一台电脑、一条命令就能跑。** 装在你的 Windows、Mac 或 Linux 上，不用买云服务器，也不用开放公网端口。
 - **一行配置接新 Agent。** 不需要 SDK，也不需要改 Agent 源码，能接收提示词并打印最后一条回复的命令行工具都能接。
-- **没有后台界面。** 需要你拍板时把卡片推到飞书、钉钉、企微、Slack、Discord 或桌面通知；想看全局进展，敲一行命令。
+- **平时没有后台界面。** 需要你拍板时把卡片推到飞书、钉钉、企微、Slack、Discord 或桌面通知；想看全局进展，敲一行命令。用 Docker 部署时会多一个只在本机可打开的管理页面。
 
 ## 上手
 
@@ -35,6 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/KKKKhazix/agent-autoloop/main/insta
 ```
 
 安装和 `agent-autoloop update` 都装最新的 [Release](https://github.com/KKKKhazix/agent-autoloop/releases)，那是通过了全部检查的版本。
+
+也可以用 Docker：仓库里的 `Dockerfile` 和 `compose.yaml` 把中台和一个只在本机可打开的管理页面跑起来，数据放在 `hub-data` 卷里。镜像里不带命令行 Agent，要让它接活得先把你的 Agent 装进镜像。完整步骤见[安装说明](INSTALL.md#docker-部署中台--本地管理页面)。
 
 装好后用你本机的 Agent 真实走一遍“提问 → 退出等回复 → 拍板 → 接着干完”：
 
@@ -257,6 +259,7 @@ Apple M5 Pro、24 GB、Node 24.21.0。写入逐条提交，事务落盘后才应
 | `examples/recipes/` | 完整场景：规则、任务 Skill 和启用说明 |
 | `examples/plugins/`、`examples/skills/`、`examples/*.sh` | 最小插件模板、独立任务手册和 Shell 示例 |
 | `skills/agent-autoloop/` | 中台的正式配置与操作手册，安装时也提供给 Agent 使用 |
+| `tools/console/` | 本地管理页面：只走中台的口子，改规则先跑 `check` |
 | `docs/` | 通信协议、插件开发说明与中英文架构图 |
 | `tests/`、`sim/` | 日常行为测试，以及模拟、穷举、强杀和变异检查 |
 | `scripts/`、`.github/workflows/` | 性能与真机验证、安装冒烟脚本，以及 Windows / Linux / macOS CI |

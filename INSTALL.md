@@ -55,6 +55,30 @@ AGENT_AUTOLOOP_REPO=/path/to/agent-autoloop sh /path/to/agent-autoloop/install.s
 
 升级时若投影格式有变化，会自动从旧日志逐条重建，历史多时首次启动需要等待；之后正常启动直接复用投影。原日志和已有卡片链接保留，不需要手动迁移。
 
+## Docker 部署（中台 + 本地管理页面）
+
+仓库根目录带 `Dockerfile` 和 `compose.yaml`：一个镜像跑中台，另一个跑管理页面（只在宿主本机可访问），配置和记录放在 `hub-data` 卷里。镜像里只有中台本身，没有命令行 Agent；要让它接活，得在镜像里装好并登录你的 Agent（照现有的 `Dockerfile` 写一份自己的，把 Agent 装进 `hub` 阶段），或者让 `--command` 指向容器里能直接运行的程序。容器里找不到这个程序时，`init` 会直接报错并让你先装好它。
+
+在本仓库根目录执行：
+
+```bash
+# 1. 生成配置和密钥；容器里没有登录服务，用 --no-service
+docker compose run --rm hub init --no-service --command '<容器里的 Agent 命令> {prompt}'
+
+# 2. 取出本人密钥，管理页面用它访问中台
+echo "OWNER_KEY=$(docker compose run --rm --entrypoint node hub -e 'console.log(JSON.parse(require("fs").readFileSync("/data/config.json","utf8")).owner)')" > .env.console
+
+# 3. 构建并启动
+docker compose up --build -d
+```
+
+打开 `http://127.0.0.1:3400`。页面能看状态、等你的卡片、轮次和定时规则，能回答卡片、结案、停掉一轮，能暂停、恢复、补跑和立刻跑一条规则；`rules.json` 也能在页面里改，保存前先用 `agent-autoloop check` 检查草稿，没过就不替换原文件。
+
+- 管理页面只监听 `127.0.0.1:3400`，只有这台电脑能打开。它握着本人密钥，能回答卡片、改规则，不要把它映射到局域网或公网。
+- 中台在容器里默认只监听 `127.0.0.1:3350`，管理页面用 `network_mode: "service:hub"` 和它共用网络，所以没有给中台映射端口。要让别的电脑的接单程序或来源直连中台，把卷里 `config.json` 的 `hub.listen` 改成 `0.0.0.0:3350`，再在 `ports` 里加一行 `"3350:3350"`；这样中台会向容器外的网络开放，前面要有 HTTPS 反向代理。
+- 配置、日志和密钥都在 `hub-data` 卷里。`docker compose down` 保留数据，加 `-v` 会连卷一起删。升级用 `git pull && docker compose up --build -d`；投影格式变化时启动会从日志重建，历史多时需要等一会。
+- 容器里没有登录服务，靠 `restart: unless-stopped` 在退出后自动重启。要跟着系统开机启动，把 Docker 服务设成开机启动，不要另装中台的系统服务。
+
 ## 临时 HOME、CI 或没有服务管理器
 
 使用临时 HOME 时不要装系统服务，不改真实用户的 shell 配置和 Agent 配置。保留调用者给定的 `AGENT_AUTOLOOP_HOME`；用真实 `CODEX_HOME` 只为了沿用已经完成的 Codex 登录。

@@ -16,7 +16,7 @@ Most of us use command-line agents like Claude Code or Codex by babysitting a te
 
 - **One machine, one install command.** Runs on Windows, macOS, or Linux. No cloud server or inbound ports required.
 - **Connect a new agent in one line.** No SDK, no agent source code to fork. Any CLI tool that takes a prompt and prints a final reply can plug in.
-- **No web dashboard.** Cards reach you on Feishu, DingTalk, WeCom, Slack, Discord, or desktop notifications when you are needed. Everything else is one command away.
+- **No web dashboard by default.** Cards reach you on Feishu, DingTalk, WeCom, Slack, Discord, or desktop notifications when you are needed. Everything else is one command away. A Docker deployment adds an admin page reachable only on this machine.
 
 ## Get started
 
@@ -35,6 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/KKKKhazix/agent-autoloop/main/insta
 ```
 
 The installer and `agent-autoloop update` both install the newest [release](https://github.com/KKKKhazix/agent-autoloop/releases), which has passed every check.
+
+You can also use Docker: the `Dockerfile` and `compose.yaml` in this repo run the hub and an admin page reachable only on this machine, with data in the `hub-data` volume. The image does not include a command-line agent, so put yours into the image before it can take work. See the [installation guide](INSTALL.md#docker-部署中台--本地管理页面) for the full steps (in Chinese).
 
 Then run a real loop with your own agent — ask, exit while it waits, make the call, resume:
 
@@ -259,6 +261,7 @@ For automated workloads, providers generally recommend using API keys rather tha
 | `examples/recipes/` | Complete recipes with rules, a task Skill, and setup instructions |
 | `examples/plugins/`, `examples/skills/`, `examples/*.sh` | Minimal plugin templates, standalone task guides, and Shell examples |
 | `skills/agent-autoloop/` | The hub's configuration and operation manual, also made available to agents during installation |
+| `tools/console/` | Local admin page; it only uses the hub's endpoints and runs `check` before replacing rules |
 | `docs/` | Protocol, plugin guide, and Chinese / English architecture diagrams |
 | `tests/`, `sim/` | Everyday behavior tests, simulation, enumeration, crash tests, and mutation checks |
 | `scripts/`, `.github/workflows/` | Performance and real-agent checks, installation smoke scripts, and Windows / Linux / macOS CI |
