@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/KKKKhazix/agent-autoloop/main/insta
 
 The installer and `agent-autoloop update` both install the newest [release](https://github.com/KKKKhazix/agent-autoloop/releases), which has passed every check.
 
-You can also use Docker: the `Dockerfile` and `compose.yaml` in this repo run the hub and an admin page reachable only on this machine, with data in the `hub-data` volume. The image does not include a command-line agent, so put yours into the image before it can take work. See the [installation guide](INSTALL.md#docker-部署中台--本地管理页面) for the full steps (in Chinese).
+You can also use Docker: the `Dockerfile` and `compose.yaml` in this repo run the hub and an admin page reachable only on this machine, with data in the `hub-data` volume. The image does not include a command-line agent, so put yours into the image before it can take work (`examples/docker-agent/` shows one with Codex). See the [installation guide](INSTALL.md#docker-部署中台--本地管理页面) for the full steps (in Chinese).
 
 Then run a real loop with your own agent — ask, exit while it waits, make the call, resume:
 

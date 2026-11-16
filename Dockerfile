@@ -14,3 +14,13 @@ COPY . .
 ENV AGENT_AUTOLOOP_HOME=/data
 ENV CONSOLE_HOST=0.0.0.0
 CMD ["node", "tools/console/serve.ts"]
+
+# Optional: the hub plus Codex, for running the agent inside the container. Build it with
+# `docker build --target hub-codex -t agent-autoloop:codex .`; the other targets are unchanged.
+FROM hub AS hub-codex
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && npm install -g @openai/codex
+# Keep the agent's login in the data volume, so rebuilding the image does not sign it out again.
+ENV CODEX_HOME=/data/codex

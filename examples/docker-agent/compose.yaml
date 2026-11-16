@@ -1,0 +1,10 @@
+# An example of running the agent inside the container, built on top of the repo's compose file.
+# From the repo root:
+#   COMPOSE="docker compose -f compose.yaml -f examples/docker-agent/compose.yaml"
+#   $COMPOSE run --rm hub init --no-service
+#   $COMPOSE run --rm --entrypoint codex hub login --device-auth
+#   $COMPOSE up --build -d
+services:
+  hub:
+    build:
+      target: hub-codex

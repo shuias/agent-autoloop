@@ -36,7 +36,7 @@ curl -fsSL https://raw.githubusercontent.com/KKKKhazix/agent-autoloop/main/insta
 
 安装和 `agent-autoloop update` 都装最新的 [Release](https://github.com/KKKKhazix/agent-autoloop/releases)，那是通过了全部检查的版本。
 
-也可以用 Docker：仓库里的 `Dockerfile` 和 `compose.yaml` 把中台和一个只在本机可打开的管理页面跑起来，数据放在 `hub-data` 卷里。镜像里不带命令行 Agent，要让它接活得先把你的 Agent 装进镜像。完整步骤见[安装说明](INSTALL.md#docker-部署中台--本地管理页面)。
+也可以用 Docker：仓库里的 `Dockerfile` 和 `compose.yaml` 把中台和一个只在本机可打开的管理页面跑起来，数据放在 `hub-data` 卷里。镜像里不带命令行 Agent，要让它接活得先把你的 Agent 装进镜像（`examples/docker-agent/` 有一份装了 Codex 的示例）。完整步骤见[安装说明](INSTALL.md#docker-部署中台--本地管理页面)。
 
 装好后用你本机的 Agent 真实走一遍“提问 → 退出等回复 → 拍板 → 接着干完”：
 
