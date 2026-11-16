@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>中台管理</title>
+    <style>
+      :root {
+        --bg: #f6f7f9;
+        --card: #ffffff;
+        --ink: #1c2024;
+        --muted: #6b7280;
+        --rule: #e3e6ea;
+        --accent: #2563eb;
+        --ok: #15803d;
+        --warn: #b45309;
+        --bad: #b91c1c;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.6 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 14px 20px;
+        background: var(--card);
+        border-bottom: 1px solid var(--rule);
+        position: sticky;
+        top: 0;
+        z-index: 1;
+      }
+      header h1 {
+        font-size: 17px;
+        margin: 0;
+      }
+      #conn {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      #conn.bad {
+        color: var(--bad);
+      }
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 16px 20px 60px;
+      }
+      section {
+        margin-bottom: 22px;
+      }
+      h2 {
+        font-size: 14px;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+      #summary {
+        background: var(--card);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 12px 16px;
+      }
+      .item {
+        background: var(--card);
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+      }
+      .head b {
+        margin-right: 8px;
+      }
+      .dim {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .text {
+        white-space: pre-wrap;
+        margin-top: 4px;
+      }
+      .actions {
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      button {
+        font: inherit;
+        padding: 4px 12px;
+        border: 1px solid var(--rule);
+        border-radius: 6px;
+        background: var(--card);
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+      button.danger:hover {
+        border-color: var(--bad);
+        color: var(--bad);
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .bad {
+        color: var(--bad);
+      }
+      textarea {
+        width: 100%;
+        min-height: 320px;
+        font: 13px/1.5 ui-monospace, monospace;
+        border: 1px solid var(--rule);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: var(--card);
+      }
+      pre {
+        white-space: pre-wrap;
+        font-size: 13px;
+      }
+      pre.bad {
+        color: var(--bad);
+      }
+      pre.ok {
+        color: var(--ok);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>中台管理</h1>
+      <span id="conn">连接中……</span>
+    </header>
+    <main>
+      <section id="summary"></section>
+      <section>
+        <h2>等你回答</h2>
+        <div id="cards"></div>
+      </section>
+      <section>
+        <h2>最近的轮次</h2>
+        <div id="runs"></div>
+      </section>
+      <section>
+        <h2>定时与规则</h2>
+        <div id="lines"></div>
+      </section>
+      <section>
+        <h2>rules.json（保存前先用 check 检查）</h2>
+        <textarea id="rules-text" spellcheck="false"></textarea>
+        <div class="actions">
+          <button id="save">保存</button>
+          <button id="reload">重新读取</button>
+        </div>
+        <pre id="check"></pre>
+      </section>
+    </main>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const esc = (s) =>
+        String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const RUN_LOOK = { claimed: "在跑", queued: "排队", done: "做完了", nothing: "没事可做", cancelled: "停了", unknown: "不确定" };
+      let state = null;
+      let timer;
+
+      async function api(path, options) {
+        const response = await fetch(path, options);
+        return { status: response.status, data: await response.json().catch(() => null) };
+      }
+      async function post(path, body) {
+        const { status, data } = await api(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body ?? {}),
+        });
+        if (status >= 400) alert(data?.error ?? `中台返回 ${status}`);
+        refresh();
+      }
+      const when = (iso) => (iso ? new Date(iso).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit" }) : "");
+      const addButton = (box, label, fn, danger) => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        if (danger) b.className = "danger";
+        b.onclick = fn;
+        box.appendChild(b);
+      };
+
+      function render() {
+        const { totals, spending } = state;
+        const spend = (s) =>
+          s ? `${s.rounds} 轮 · ${s.tokens ?? 0} tokens${s.cost != null ? ` · ${s.cost}` : ""}` : "";
+        $("summary").innerHTML =
+          `等你 <b>${state.cards.length}</b> · 在跑 <b>${totals.running}</b> · 排队 <b>${totals.queued - totals.retrying}</b>` +
+          (totals.retrying ? ` · 等重派 <b>${totals.retrying}</b>` : "") +
+          (totals.unknown ? ` · <span class="bad">不确定 ${totals.unknown}</span>` : "") +
+          ` · 今天做完 <b>${totals.doneToday}</b>` +
+          (spend(spending.today) ? `<div class="dim">今天 ${esc(spend(spending.today))}　本周 ${esc(spend(spending.week))}</div>` : "");
+
+        const online = [
+          ...state.agents.map((a) => ({ ...a, where: a.worker })),
+          ...state.channels.map((c) => ({ ...c, where: "通道" })),
+        ];
+        if (online.length) {
+          $("summary").innerHTML +=
+            "<div>" +
+            online
+              .map((one) => (one.online ? `<span class="ok">● ${esc(one.name)}</span>` : `<span class="bad">○ ${esc(one.name)}（离线）</span>`))
+              .join("　") +
+            "</div>";
+        }
+
+        const cards = $("cards");
+        cards.innerHTML = "";
+        if (!state.cards.length) cards.innerHTML = '<div class="dim">没有等你的卡片。</div>';
+        for (const c of state.cards) {
+          const div = document.createElement("div");
+          div.className = "item";
+          div.innerHTML =
+            `<div class="head"><b>${esc(c.title)}</b><span class="dim">#${c.id} · ${esc(c.rule ?? "")}${c.kind === "notice" ? " · 通知" : ""}</span></div>` +
+            (c.text ? `<div class="text">${esc(c.text)}</div>` : "");
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          if (c.kind === "ask" && Array.isArray(c.options))
+            c.options.forEach((opt, i) => addButton(actions, opt, () => post(`/api/cards/${c.id}/answer`, { choice: i })));
+          else if (c.kind === "notice") addButton(actions, "知道了", () => post(`/api/cards/${c.id}/answer`, {}));
+          addButton(actions, "结案", () => {
+            const reason = prompt("结案理由");
+            if (reason !== null) post(`/api/cards/${c.id}/resolve`, { reason });
+          });
+          div.appendChild(actions);
+          cards.appendChild(div);
+        }
+
+        const runs = $("runs");
+        runs.innerHTML = "";
+        if (!state.runs.length) runs.innerHTML = '<div class="dim">还没有轮次。</div>';
+        for (const r of state.runs.slice(0, 15)) {
+          const div = document.createElement("div");
+          div.className = "item";
+          const look = RUN_LOOK[r.state] ?? r.state;
+          const cls = r.state === "unknown" ? "bad" : r.state === "claimed" ? "ok" : "dim";
+          div.innerHTML =
+            `<div class="head"><span class="${cls}">${esc(look)}</span> <b>#${r.id}</b> <span class="dim">${esc(r.rule)}${r.attempts > 1 ? ` · 第 ${r.attempts} 次` : ""}${r.finishedAt ? ` · ${when(r.finishedAt)}` : ""}</span></div>` +
+            (r.error ? `<div class="text bad">${esc(r.error)}</div>` : r.summary ? `<div class="text">${esc(r.summary)}</div>` : "");
+          if (r.state === "claimed" || r.state === "queued") {
+            const actions = document.createElement("div");
+            actions.className = "actions";
+            addButton(actions, "停掉", () => post(`/api/runs/${r.id}/cancel`, {}), true);
+            div.appendChild(actions);
+          }
+          runs.appendChild(div);
+        }
+
+        const lines = $("lines");
+        lines.innerHTML = "";
+        if (!state.lines.length) lines.innerHTML = '<div class="dim">没有定时规则。</div>';
+        for (const line of state.lines) {
+          const div = document.createElement("div");
+          div.className = "item";
+          const name = encodeURIComponent(line.name);
+          div.innerHTML =
+            `<div class="head"><b>${esc(line.name)}</b><span class="dim">${esc(line.every ?? "")} · 下次 ${when(line.next)}</span>` +
+            (line.paused ? `<span class="warn"> · 已暂停</span>` : "") +
+            `</div>`;
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          addButton(actions, "立刻跑一次", () => post(`/api/rules/${name}/run`, {}));
+          if (line.paused) {
+            addButton(actions, "恢复", () => post(`/api/rules/${name}/resume`, {}));
+            addButton(actions, "补跑暂停期间", () =>
+              post(`/api/rules/${name}/replay`, { since: line.paused.since ?? new Date(Date.now() - 86400000).toISOString() }),
+            );
+          } else {
+            addButton(actions, "暂停", () => post(`/api/rules/${name}/pause`, {}), true);
+          }
+          div.appendChild(actions);
+          lines.appendChild(div);
+        }
+      }
+
+      async function refresh() {
+        const { status, data } = await api("/api/state");
+        if (status !== 200) {
+          $("conn").textContent = "连不上中台";
+          $("conn").className = "bad";
+          return;
+        }
+        state = data;
+        $("conn").textContent = `日志到 ${state.seq}`;
+        $("conn").className = "";
+        render();
+      }
+
+      async function loadRules() {
+        const { data } = await api("/api/rules");
+        $("rules-text").value = data?.text ?? "";
+        $("rules-text").placeholder = data?.text == null ? `还没有 ${data?.path ?? "rules.json"}，保存第一段规则就有了。` : "";
+      }
+      $("save").onclick = async () => {
+        const { status, data } = await api("/api/rules", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: $("rules-text").value }),
+        });
+        const box = $("check");
+        box.className = status >= 400 ? "bad" : "ok";
+        box.textContent = status >= 400 ? (data?.error ?? "保存失败") : (data?.output ?? "已保存");
+        if (status < 400) refresh();
+      };
+      $("reload").onclick = () => {
+        $("check").textContent = "";
+        loadRules();
+      };
+
+      // Follow from the state we just read: replaying the whole log at every page load is noise.
+      refresh().then(() => {
+        const events = new EventSource(`/api/stream?after=${state ? state.seq : 0}`);
+        events.addEventListener("fact", () => {
+          clearTimeout(timer);
+          timer = setTimeout(refresh, 400);
+        });
+        events.onerror = () => {
+          $("conn").textContent = "日志流断了，正在重连";
+          $("conn").className = "bad";
+        };
+      });
+      loadRules();
+    </script>
+  </body>
+</html>

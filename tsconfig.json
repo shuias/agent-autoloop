@@ -22,6 +22,7 @@
     "kernel",
     "protocol",
     "sim",
+    "tools",
     "examples/recipes"
   ]
 }

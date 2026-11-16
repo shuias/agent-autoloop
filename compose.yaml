@@ -1,0 +1,29 @@
+# 中台 + 本地管理页面。先跑一次 init 建好卷里的配置和密钥，再 up：
+#   docker compose run --rm hub init --no-service --command '<你的命令行 Agent> {prompt}'
+#   echo "OWNER_KEY=$(docker compose run --rm --entrypoint node hub -e 'console.log(JSON.parse(require("fs").readFileSync("/data/config.json","utf8")).owner)')" > .env.console
+#   docker compose up --build
+services:
+  hub:
+    build:
+      context: .
+      target: hub
+    volumes:
+      - hub-data:/data
+    ports:
+      # 只有管理页面暴露到本机；中台本身在容器内只监听 127.0.0.1，管理页面与它共用网络。
+      # 要让别的电脑的接单程序或来源直连中台，把卷里 config.json 的 hub.listen 改成 0.0.0.0:3350，
+      # 再在这里加一行 "3350:3350"（或 "0.0.0.0:3350:3350"，那样整个局域网都能连）。
+      - "127.0.0.1:3400:3400"
+    restart: unless-stopped
+  console:
+    build:
+      context: .
+      target: console
+    # 和 hub 共用网络，所以中台不用改监听地址也连得上
+    network_mode: "service:hub"
+    volumes:
+      - hub-data:/data
+    env_file: .env.console # 写一行 OWNER_KEY=<本人密钥>；这个文件不进 git
+    restart: unless-stopped
+volumes:
+  hub-data:
