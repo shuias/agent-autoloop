@@ -238,6 +238,7 @@ Apple M5 Pro、24 GB、Node 24.21.0。写入逐条提交，事务落盘后才应
 ## 更多文档
 
 - [安装说明](INSTALL.md)
+- [运维及操作手册](Agent-autoloop运维及操作手册.html)（单文件 HTML）
 - [规则与交付流水线配置手册](skills/agent-autoloop/SKILL.md)
 - [如何编写插件](docs/plugins.md)
 - [完整通信协议](docs/protocol.md)

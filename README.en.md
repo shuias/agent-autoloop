@@ -240,6 +240,7 @@ For automated workloads, providers generally recommend using API keys rather tha
 ## Documentation
 
 - [Installation guide](INSTALL.md)
+- [Operations manual](Agent-autoloop运维及操作手册.html) (single-file HTML, in Chinese)
 - [Configuration & delivery pipeline manual](skills/agent-autoloop/SKILL.md)
 - [Writing plugins](docs/plugins.md)
 - [Full HTTP protocol specification](docs/protocol.md)

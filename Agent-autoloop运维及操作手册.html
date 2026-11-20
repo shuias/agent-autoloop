@@ -203,7 +203,7 @@ footer.doc li{margin:4px 0}
 
   <div class="sidebar-foot">
     依据仓库 <code>main</code> 分支文档整理<br>
-    更新日期 2026-11-13<br>
+    更新日期 2026-11-20<br>
     命令以 <code>agent-autoloop help</code> 为准
   </div>
 </aside>
@@ -222,7 +222,7 @@ footer.doc li{margin:4px 0}
     <span>适用分支 main</span>
     <span>Node.js 24+</span>
     <span>零运行时依赖</span>
-    <span>更新于 2026-11-13</span>
+    <span>更新于 2026-11-20</span>
   </div>
   <div class="jump">
     <a href="#s3"><b>5 分钟上手</b><small>安装 · 初始化 · 试跑</small></a>
@@ -244,7 +244,7 @@ footer.doc li{margin:4px 0}
   <ul>
     <li><strong>一台电脑、一条命令就能跑。</strong>Windows、macOS、Linux 都支持，不用云服务器，也不用开放公网端口。</li>
     <li><strong>一行配置接新 Agent。</strong>不需要 SDK，能接收提示词并打印最后一条回复的命令行工具都能接。</li>
-    <li><strong>没有后台界面。</strong>需要拍板时把卡片推到飞书、钉钉、企微、Slack、Discord 或桌面通知；看全局进展用一条命令。</li>
+    <li><strong>默认没有后台界面。</strong>需要拍板时把卡片推到飞书、钉钉、企微、Slack、Discord 或桌面通知；看全局进展用一条命令。用 Docker 部署时会多一个只在本机可打开的管理页面。</li>
     <li><strong>等待不花钱。</strong>等你回复期间 Agent 进程已退出，不占内存也不消耗 Token；回答后再接回原会话。</li>
   </ul>
 
@@ -342,6 +342,7 @@ footer.doc li{margin:4px 0}
         <tr><td><code>worker/</code></td><td>接单程序：领活、运行 Agent、心跳与停止、读取和提交回执。</td><td>Agent 没跑成、心跳掉线、停止不干净</td></tr>
         <tr><td><code>cli/</code>、<code>bin/</code></td><td>用户命令及启动入口：状态、回答、<code>why</code>、MCP、更新与卸载。</td><td>命令行报错、输出格式</td></tr>
         <tr><td><code>plugins/</code></td><td>内置 Agent、事件、通道和交付插件；安装目录的同名插件优先。</td><td>某个 Agent / 通道 / 来源的行为</td></tr>
+        <tr><td><code>tools/console/</code></td><td>本地管理页面：只走中台的口子，看状态、卡片、轮次和规则，改规则先跑 <code>check</code>。</td><td>页面打不开、规则保存被拒</td></tr>
       </tbody>
     </table>
   </div>
@@ -396,7 +397,7 @@ footer.doc li{margin:4px 0}
 <section class="chapter" id="s3">
   <div class="chapter-kicker">03 / INSTALL</div>
   <h2>安装与初始化</h2>
-  <p class="intro">安装分两步：先把程序装进数据目录并登记成系统服务，再用 <code>init</code> 选好 Agent 和端口生成第一份规则。装完用 <code>try</code> 真实走一遍“提问 → 等待 → 拍板 → 接着干”。</p>
+  <p class="intro">安装分两步：先把程序装进数据目录并登记成系统服务，再用 <code>init</code> 选好 Agent 和端口生成第一份规则。也可以用 Docker 一次跑起中台和管理页面，见本章最后的「Docker 部署」。装完用 <code>try</code> 真实走一遍“提问 → 等待 → 拍板 → 接着干”。</p>
 
   <h3>前置条件</h3>
   <div class="table-wrap">
@@ -458,6 +459,48 @@ Agent 结束了这一轮，问了你一个问题。它现在不占进程、不�
 回答：agent-autoloop answer 1 &lt;序号&gt;
 答完运行 agent-autoloop status，能看到它接着把活干完。</code></pre></div>
   <p>回答后再运行 <code>agent-autoloop status</code>，看到“试跑通过”、今天的轮数、Token 和费用，才算接通。</p>
+
+  <h3>Docker 部署（中台 + 管理页面）</h3>
+  <p>不想在本机装 Node 和系统服务时，可以用仓库里的 <code>Dockerfile</code> 和 <code>compose.yaml</code>：一个镜像跑中台，另一个跑管理页面，配置和记录放在 <code>hub-data</code> 卷里。管理页面只在宿主机本机可访问，本人密钥不会进浏览器。</p>
+  <div class="code"><div class="code-head">bash（在本仓库根目录）</div><pre><code># 1. 生成配置和密钥；容器里没有登录服务，用 --no-service
+docker compose run --rm hub init --no-service --command '&lt;容器里的 Agent 命令&gt; {prompt}'
+
+# 2. 取出本人密钥，管理页面用它访问中台
+echo "OWNER_KEY=$(docker compose run --rm --entrypoint node hub -e 'console.log(JSON.parse(require("fs").readFileSync("/data/config.json","utf8")).owner)')" &gt; .env.console
+
+# 3. 构建并启动
+docker compose up --build -d</code></pre></div>
+  <p>打开 <code>http://127.0.0.1:3400</code>。页面能看状态、卡片、轮次和定时规则，能回答和结案卡片、停掉一轮、暂停 / 恢复 / 补跑 / 立刻跑规则；改 <code>rules.json</code> 时先跑 <code>agent-autoloop check</code>，草稿没过不会替换原文件。</p>
+  <div class="callout warn">
+    <span class="label">安全</span>
+    <p>管理页面握着本人密钥，能回答卡片和改规则。它默认只映射到宿主机 <code>127.0.0.1:3400</code>，不要改成局域网或公网地址。</p>
+  </div>
+
+  <h4>带 Agent 的镜像</h4>
+  <p>中台镜像里没有命令行 Agent。要让它直接接活，用 <code>examples/docker-agent/compose.yaml</code> 这份覆盖文件：它在中台镜像里装上 Codex，登录信息放在独立的 <code>codex-home</code> 卷，重建镜像不用重新登录。</p>
+  <div class="code"><div class="code-head">bash</div><pre><code>COMPOSE="docker compose -f compose.yaml -f examples/docker-agent/compose.yaml"
+$COMPOSE run --rm hub init --no-service
+$COMPOSE run --rm --entrypoint codex hub login --device-auth
+# 用 API Key 时换成下面这条，密钥从标准输入进
+printenv OPENAI_API_KEY | $COMPOSE run -T --rm --entrypoint codex hub login --with-api-key
+$COMPOSE up --build -d</code></pre></div>
+  <p>设备码登录要能访问 <code>auth.openai.com</code>；连不上时，把已经登录的 <code>~/.codex/auth.json</code> 放进 <code>codex-home</code> 卷。接 OpenAI 兼容的第三方接口时，在 <code>codex-home</code> 里的 <code>config.toml</code> 写 <code>openai_base_url</code>；接口跑在宿主机上时用 <code>http://host.docker.internal:&lt;端口&gt;/v1</code>，示例已把该名字映射到宿主机。</p>
+  <div class="callout">
+    <span class="label">容器里的沙箱</span>
+    <p>Codex 自带的沙箱在容器里起不来。规则里要把这个 Agent 的 <code>access</code> 设成 <code>full</code>，由容器当隔离边界；不设的话它跑不了本机命令，也读不到资料文件。</p>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>事项</th><th>做法</th></tr></thead>
+      <tbody>
+        <tr><td>数据与卷</td><td>配置、日志和密钥在 <code>hub-data</code>；Agent 登录在 <code>codex-home</code>。清空数据用 <code>docker compose down -v</code></td></tr>
+        <tr><td>后台常驻</td><td>容器里没有 systemd，用 <code>--no-service</code>，由 <code>restart: unless-stopped</code> 自动拉起；要开机启动，把 Docker 服务设成开机启动</td></tr>
+        <tr><td>让别的电脑直连</td><td>把卷里 <code>config.json</code> 的 <code>hub.listen</code> 改成 <code>0.0.0.0:3350</code> 并加端口映射；前面要有 HTTPS 反向代理</td></tr>
+        <tr><td>升级</td><td><code>git pull</code> 后 <code>docker compose up --build -d</code>；投影格式变化时首次启动会从日志重建</td></tr>
+        <tr><td>日志</td><td><code>docker compose logs -f hub</code>、<code>docker compose logs -f console</code></td></tr>
+      </tbody>
+    </table>
+  </div>
 
   <div class="callout">
     <span class="label">数据目录权限</span>
@@ -835,6 +878,9 @@ agent-autoloop why 42          # 第 42 轮为什么跑、规则是什么、结�
 agent-autoloop status --json   # 给脚本或看板</code></pre></div>
   <p><code>status</code> 里的在线状态留了心跳余量：记录后 3 分钟内都算在线。<code>online</code>、<code>seenAt</code> 这类字段适合做值守判断，但不要拿秒级时间做硬性告警。</p>
 
+  <h3>管理页面</h3>
+  <p>用 Docker 部署时自带一个管理页面，地址是 <code>http://127.0.0.1:3400</code>。它只在本机可打开，握着本人密钥，能看状态、卡片、轮次和定时规则，也能回答卡片、停掉一轮和改 <code>rules.json</code>；改规则同样先过 <code>check</code>。其他部署方式没有这个页面，沿用上面的命令。</p>
+
   <h3>日志位置</h3>
   <div class="table-wrap">
     <table>
@@ -890,7 +936,7 @@ agent-autoloop uninstall --yes  # 非交互环境跳过确认</code></pre></div>
 <section class="chapter" id="s8">
   <div class="chapter-kicker">08 / DEPLOYMENT</div>
   <h2>多机与服务器部署</h2>
-  <p class="intro">一台电脑就能跑完整闭环。需要手机批卡片、外部 Webhook 进来，或让多台电脑一起干活时，把中台放到一台有公网入口的机器上，其他电脑只做接单程序。</p>
+  <p class="intro">一台电脑就能跑完整闭环。需要手机批卡片、外部 Webhook 进来，或让多台电脑一起干活时，把中台放到一台有公网入口的机器上，其他电脑只做接单程序。用容器部署时，端口和卷的做法见 03 章的「Docker 部署」。</p>
 
   <figure class="diagram">
     <svg viewBox="0 0 900 380" role="img" aria-label="多机部署拓扑" style="--arrow:url(#arrow3)">
@@ -1077,6 +1123,8 @@ agent-autoloop conformance http://127.0.0.1:3350 --config /path/to/test-keys.jso
         <tr><td>恢复失败</td><td>中台没停，或备份目录不完整</td><td>先停中台，再 <code>restore &lt;目录&gt; --yes</code>；恢复会替换文件并保留一份原文件</td></tr>
         <tr><td>飞书卡片点击没反应</td><td>同一个应用开了两个监听，或回调没订阅</td><td>只在一台电脑上跑；在开发者后台确认订阅卡片回传交互（长连接）</td></tr>
         <tr><td>Windows 服务装不上</td><td>用的是 Administrator 账号，开着 UAC 时不能建登录任务</td><td>按 <code>service install</code> 打印的「启动」文件夹方式，以普通权限在登录时拉起</td></tr>
+        <tr><td>容器里的 Agent 报沙箱无法创建</td><td>Codex 自带的沙箱在容器内起不来</td><td>在 <code>rules.json</code> 的 <code>agents</code> 里把这个 Agent 设成 <code>"access": "full"</code>，隔离交给容器</td></tr>
+        <tr><td>容器里连不上宿主机的兼容接口</td><td>写了 <code>127.0.0.1</code>，在容器里指的是容器自己</td><td>改用 <code>http://host.docker.internal:&lt;端口&gt;/v1</code>，并保留示例里的 <code>host-gateway</code> 映射</td></tr>
       </tbody>
     </table>
   </div>
