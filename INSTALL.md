@@ -89,6 +89,8 @@ $COMPOSE up --build -d
 
 接一个 OpenAI 兼容的第三方接口时，把它的地址写进 `codex-home` 卷里的 `config.toml`，例如 `openai_base_url = "https://example.com/v1"`；接口跑在这台电脑上时用 `http://host.docker.internal:<端口>/v1`，示例已经把这个名字映射到宿主机。只支持 Chat Completions 的接口要改成自定义 `model_providers` 并写 `wire_api = "chat"`。
 
+容器里 Codex 自带的沙箱起不来，规则里要把它设成完整权限：在 `rules.json` 的 `agents` 里给这个 Agent 写 `"access": "full"`，由容器本身当隔离边界。不写的话它跑不了本机命令，也读不到资料文件。
+
 - 管理页面只监听 `127.0.0.1:3400`，只有这台电脑能打开。它握着本人密钥，能回答卡片、改规则，不要把它映射到局域网或公网。
 - 中台在容器里默认只监听 `127.0.0.1:3350`，管理页面用 `network_mode: "service:hub"` 和它共用网络，所以没有给中台映射端口。要让别的电脑的接单程序或来源直连中台，把卷里 `config.json` 的 `hub.listen` 改成 `0.0.0.0:3350`，再在 `ports` 里加一行 `"3350:3350"`；这样中台会向容器外的网络开放，前面要有 HTTPS 反向代理。
 - 配置、日志和密钥都在 `hub-data` 卷里。`docker compose down` 保留数据，加 `-v` 会连卷一起删。升级用 `git pull && docker compose up --build -d`；投影格式变化时启动会从日志重建，历史多时需要等一会。
