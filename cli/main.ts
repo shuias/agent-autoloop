@@ -14,6 +14,7 @@ import { privateDirectory } from "../host/files.ts";
 import {
   aboveDesktop,
   installService,
+  leftToSystem,
   removeService,
   restartService,
   runningUp,
@@ -291,7 +292,7 @@ function commandWords(line: string) {
 /** What was asked for on the command line, or whichever of the usual Agents is installed. */
 async function agentsToUse(named: Flags, worker: string) {
   const agents: Record<string, { name: string; worker: string; use: string; command?: string[] }> = {};
-  const { adapterFor, findProgram } = await import("../worker/agents.ts");
+  const { adapterFor, onPath } = await import("../worker/agents.ts");
   const command = text(named.command);
   if (command) {
     const words = commandWords(command);
@@ -300,14 +301,8 @@ async function agentsToUse(named: Flags, worker: string) {
     const [first] = words;
     const there = /[\\/]/.test(first)
       ? existsSync(path.resolve(first))
-      : /^[\w.+@-]+$/.test(first) &&
-        (() => {
-          try {
-            return Boolean(findProgram(first));
-          } catch {
-            return false;
-          }
-        })();
+      : // Where the rule will look, not where a built-in Agent may also look: a rule's command runs in a login shell.
+        /^[\w.+@-]+$/.test(first) && Boolean(onPath(first));
     if (!there) return fail(`找不到 ${first}：先装好它，或者在 --command 里写它的完整路径。`);
     agents.agent = { name: "Agent", worker, use: "command", command: words };
     return agents;
@@ -490,8 +485,8 @@ async function runs(args: string[]) {
   if (rest.length > 1 || named.before === true) return fail(RUNS_USAGE);
   const before = named.before === undefined ? undefined : runOf(named.before, RUNS_USAGE);
   const owner = ownerClient();
-  const { findRuns, runsText } = await import("./runs.ts");
-  const found = await findRuns((at) => owner.state(at), { rule: rest[0], before });
+  const { readRuns, runsText } = await import("./runs.ts");
+  const found = await readRuns(owner, rest[0], before);
   if (named.json !== undefined) return console.log(JSON.stringify({ runs: found.runs, before: found.more }, null, 2));
   const color = colorFor(process.stdout, process.env);
   console.log(runsText(found, { rule: rest[0], color, columns: process.stdout.columns }));
@@ -639,7 +634,14 @@ async function doctor() {
           say(!problem, problem ?? `${agent.name} 可以用`);
         }
       }
-      for (const channel of state.channels) say(channel.online, `${channel.name}${channel.online ? "在线" : "不在线"}`);
+      for (const channel of state.channels) {
+        say(channel.online, `${channel.name}${channel.online ? "在线" : "不在线"}`);
+        const failure = channel.lastFailure;
+        if (!failure) continue;
+        // Not "still retrying": a card closed before it got through is never tried again, though its failure stays the last.
+        const tried = `试了 ${failure.tries} 次${failure.givenUp ? "，已经不再重试" : ""}`;
+        say(false, `${channel.name}最近一张卡片（#${failure.card}）没送到：${failure.error}（${tried}）`);
+      }
       const manual = path.join(ROOT, "skills", "agent-autoloop", "SKILL.md");
       if (!state.channels.length) {
         console.log(`○ 还没接通道：Agent 问你时不会主动告诉你，要自己运行 agent-autoloop status 看。接法见 ${manual}`);
@@ -860,6 +862,8 @@ async function service(args: string[]) {
   if (args[0] === "install") {
     // Installing over kept data comes here and not to init, and uninstalling took the links away.
     linkSkill();
+    const told = leftToSystem();
+    if (told) return console.log(told);
     installService();
     return waitForHub();
   }

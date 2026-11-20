@@ -91,19 +91,16 @@ export async function fullCheck(
   config: Settings,
   io: DeliveryIO,
   after = 0,
+  startedAt = io.now?.() ?? Date.now(),
 ): Promise<"passed" | "waiting" | "failed" | "stalled"> {
   const { job } = config.check;
   const run = await newestCheck(head, config, io);
-  if (!run || run.id <= after) return "waiting";
+  const now = io.now?.() ?? Date.now();
+  if (!run || run.id <= after) return now - startedAt > STALL ? "stalled" : "waiting";
   const { jobs } = await io.api(`actions/runs/${run.id}/jobs?filter=latest&per_page=100`);
-  if (
-    !jobs.length &&
-    ["queued", "waiting", "pending"].includes(run.status) &&
-    (io.now?.() ?? Date.now()) - Date.parse(run.created_at) > STALL
-  )
-    return "stalled";
   const required = jobs.filter((candidate: any) => candidate.name === job || candidate.name.startsWith(`${job} (`));
-  if (!required.length) return "waiting";
+  if (!required.length)
+    return run.status !== "completed" && now - Date.parse(run.created_at) > STALL ? "stalled" : "waiting";
   if (run.status === "completed" && run.conclusion !== "success") return "failed";
   const finished = (item: any) => item.status === "completed" && item.conclusion === "success";
   return finished(run) && required.every(finished) ? "passed" : "waiting";
@@ -208,8 +205,12 @@ export async function deliver(
   if (!pr.merged_at && !io.verifyReview) {
     // The label stays on after findings, so another event lands here: a second review that misses them would merge the commit.
     // The review status keeps the record, since a failed round writes its error over `delivery`.
+    // An owner's decision goes on to the review, which checks who wrote it.
     const { statuses } = await io.api(`commits/${head}/status?per_page=100`);
-    if (statuses.some((item: any) => item.context === config.review.status && item.state === "failure"))
+    const decided = statuses.some(
+      (item: any) => item.context === `delivery-owner/${number}` && item.state === "success",
+    );
+    if (!decided && statuses.some((item: any) => item.context === config.review.status && item.state === "failure"))
       return { summary: "这个提交审查发现过问题，修复后推新提交才会重审" };
   }
   if (!io.verifyReview) await accept();
@@ -278,6 +279,7 @@ export async function deliver(
       if (io.checkRecovery?.head === head) io.checkRecovery.after = after;
       await io.api(`pulls/${number}/ready`, {}, "POST");
     }
+    let checkStartedAt = io.now?.() ?? Date.now();
     let merging = false;
     let autoRequested = false;
     const stopAuto = async () => {
@@ -289,7 +291,7 @@ export async function deliver(
     };
     try {
       for (;;) {
-        const state = await fullCheck(head, config, io, after);
+        const state = await fullCheck(head, config, io, after, checkStartedAt);
         pr = await io.api(`pulls/${number}`);
         if (pr.merged_at) break rounds;
         if (pr.head.sha !== head) {
@@ -323,6 +325,7 @@ export async function deliver(
           after = (await newestCheck(head, config, io))?.id ?? 0;
           io.checkRecovery.after = after;
           await io.api(`pulls/${number}/ready`, {}, "POST");
+          checkStartedAt = io.now?.() ?? Date.now();
           continue;
         }
         if (state === "failed") {

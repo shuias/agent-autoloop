@@ -1,11 +1,14 @@
 // The clock's events. Failure cases: a schedule fires when it isn't due, twice for one moment, or on a schedule that has
-// just been changed; a hub asleep through several runs each of them (only the latest is owed) or none; a timer fires early,
+// just been changed, or by the old zone's clock once the timezone has changed; a hub asleep through several runs each of them (only the latest is owed) or none; a timer fires early,
 // twice, or doesn't wake its own thread in its session; writing the same key makes a second timer; cancelling leaves it; a
-// fired timer stops a new one being set under its key; a bad rules file stops the hub or isn't told; told every tick, or
+// fired timer stops a new one being set under its key; a fired check doesn't name the event the source posted, or stops
+// naming it once a check is set by a check round, or once that round asks a question and the answer wakes the next; a bad
+// rules file stops the hub or isn't told; told every tick, or
 // the card stays after it's fixed; a rules file that is gone stops the hub, or isn't picked up when it's moved back, or
 // brings back a card the owner closed at every tick.
 // Cancelling a timer that isn't waiting spoils the receipt it's in; a timer coming due after its rule has gone stops the
-// clock for everything else, or starts something; a clock set back runs the same scheduled moment a second time.
+// clock for everything else, starts something, or goes by without telling the owner; a clock set back runs the same
+// scheduled moment a second time.
 import assert from "node:assert/strict";
 import { readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,9 +19,9 @@ const home = setup("schedule");
 const rulesFile = join(home, "rules.json");
 writeFileSync(rulesFile, readFileSync(process.env.AGENT_AUTOLOOP_RULES!, "utf8"));
 process.env.AGENT_AUTOLOOP_RULES = rulesFile;
-const { execute, reloadRules, tick } = await import("./hub.ts");
+const { execute, reloadRules, stateOf, tick } = await import("./hub.ts");
 const { ingest } = await import("./hub.ts");
-const { claimNext, finish, started, heartbeat } = await import("./hub.ts");
+const { claimNext, finish, started, heartbeat, cancel, answer } = await import("./hub.ts");
 const { all, one, run } = await import("./storage.ts");
 
 const clean = () => {
@@ -81,6 +84,29 @@ test("a schedule that changes starts counting from the change", () => {
   tick(at(121));
 });
 
+test("a timezone that changes moves a schedule to the new zone's clock from the change", () => {
+  clean();
+  const before = readFileSync(rulesFile, "utf8");
+  const morning = () => ticks().filter((key) => key.startsWith("早报@"));
+  // 10:00 in Shanghai: the morning one is next due tomorrow, but 09:00 in UTC is still to come today.
+  tick(at(0));
+  writeFileSync(rulesFile, JSON.stringify({ ...JSON.parse(before), timezone: "UTC" }));
+  tick(at(1));
+  const due = one<{ next_at: string }>("SELECT next_at FROM schedules WHERE rule = '早报'")!.next_at;
+  const shown = stateOf(at(1)).lines.find((line: { name: string }) => line.name === "早报")!.next;
+  assert.deepEqual(
+    [due, shown],
+    ["2026-10-18T09:00:00.000Z", due],
+    "what the status says is next is when it comes due",
+  );
+  tick(at(419));
+  assert.deepEqual(morning(), []);
+  tick(at(420));
+  assert.deepEqual(morning(), ["早报@2026-10-18T09:00:00.000Z"]);
+  writeFileSync(rulesFile, before);
+  tick(at(421));
+});
+
 test("a run's look-again fires once at its time, on its thread, in its session, with what it left", () => {
   clean();
   ingest("app", { id: "1", type: "feedback.new", subject: "#1" }, at(0));
@@ -98,6 +124,11 @@ test("a run's look-again fires once at its time, on its thread, in its session, 
   keepWorkersHere(at(60));
   tick(at(60));
   tick(at(60.5));
+  assert.equal(
+    all("SELECT id FROM timers WHERE event_id IS NOT NULL").length,
+    1,
+    "the fired timer stays until its run is handled",
+  );
   // 11:00 is also when the five-minutely rule comes due, on the same worker.
   const poll = claim("w1", at(61))!;
   assert.equal(poll.rule.name, "巡检");
@@ -113,6 +144,11 @@ test("a run's look-again fires once at its time, on its thread, in its session, 
     next.context.timers.map((t) => [t.key, t.about]),
     [["recheck", "看原站恢复了没有"]],
   );
+  assert.deepEqual(
+    next.context.timers.map((t) => t.events),
+    [["1"]],
+    "the check names the event the source posted, so what it concludes can be tied back to that id",
+  );
   finish(
     next.run,
     next.token,
@@ -124,6 +160,97 @@ test("a run's look-again fires once at its time, on its thread, in its session, 
     1,
     "the fired one doesn't stop a new one under its key",
   );
+  assert.equal(
+    all("SELECT id FROM timers").length,
+    1,
+    "once the linked run is terminal, the old row is removed from the live projection",
+  );
+  const fired = all<{ fact: string }>("SELECT fact FROM facts")
+    .flatMap(({ fact }) => JSON.parse(fact).changes)
+    .find(
+      (change) => change.table === "timers" && change.row?.about === "看原站恢复了没有" && change.row.event_id !== null,
+    );
+  assert.ok(fired, "the facts log keeps the timer and event link after the projection row is removed");
+  // A check set by a check round names the source's event too. The timer that woke this round is gone by the time the
+  // next one starts, so the lineage has to be written down when the check is set rather than walked back afterwards.
+  keepWorkersHere(at(120));
+  tick(at(120));
+  let later = claim("w1", at(121))!;
+  if (later.rule.name !== "意见") {
+    finish(later.run, later.token, { outcome: "nothing" }, at(121));
+    later = claim("w1", at(121))!;
+  }
+  assert.equal(later.rule.name, "意见");
+  assert.deepEqual(
+    later.context.timers.map((t) => t.events),
+    [["1"]],
+    "a check set by a check round still names the event the source posted",
+  );
+});
+
+test("an answer to a question a check round asked still names the event the source posted", () => {
+  clean();
+  ingest("app", { id: "1", type: "feedback.new", subject: "#1" }, at(0));
+  const job = claim("w1", at(0))!;
+  started(job.run, job.token, { session: "s-1" }, at(0));
+  finish(
+    job.run,
+    job.token,
+    { outcome: "done", later: [{ key: "recheck", at: new Date(at(60)).toISOString(), about: "看原站恢复了没有" }] },
+    at(1),
+  );
+  keepWorkersHere(at(60));
+  tick(at(60));
+  // 11:00 is also when the five-minutely rule comes due, on the same worker.
+  let check = claim("w1", at(61))!;
+  if (check.rule.name !== "意见") {
+    finish(check.run, check.token, { outcome: "nothing" }, at(61));
+    check = claim("w1", at(61))!;
+  }
+  assert.equal(check.rule.name, "意见");
+  assert.deepEqual(
+    check.context.timers.map((t) => t.events),
+    [["1"]],
+    "the check round itself names the event the source posted",
+  );
+  finish(
+    check.run,
+    check.token,
+    { outcome: "done", ask: [{ title: "原站恢复了吗", text: "恢复了要不要接着做", options: ["接着做", "算了"] }] },
+    at(62),
+  );
+  assert.equal(
+    all("SELECT id FROM timers WHERE event_id IS NOT NULL").length,
+    0,
+    "the timer row is gone before the answer arrives, so the lineage cannot be read from it",
+  );
+  const asked = one<{ id: number }>("SELECT id FROM cards WHERE run_id = ?", [check.run])!.id;
+  answer(asked, { choice: 0, by: "me" }, at(63));
+  keepWorkersHere(at(63));
+  const woke = claim("w1", at(63))!;
+  assert.deepEqual(
+    woke.context.answers.map((a) => a.events),
+    [["1"]],
+    "the round the answer wakes names the event the source posted, not the timer that woke the check round",
+  );
+});
+
+test("cancelling a queued timer run removes its fired timer from the live projection", () => {
+  clean();
+  ingest("app", { id: "1", type: "feedback.new", subject: "#1" }, at(0));
+  const job = claim("w1", at(0))!;
+  finish(
+    job.run,
+    job.token,
+    { outcome: "done", later: [{ key: "recheck", at: new Date(at(60)).toISOString(), about: "看原站恢复了没有" }] },
+    at(1),
+  );
+  keepWorkersHere(at(59));
+  tick(at(60));
+  assert.equal(all("SELECT id FROM timers WHERE event_id IS NOT NULL").length, 1);
+  const queued = one<{ id: number }>("SELECT id FROM runs WHERE rule = '意见' AND state = 'queued'")!;
+  cancel(queued.id, at(61));
+  assert.equal(all("SELECT id FROM timers").length, 0);
 });
 
 test("the same key moves a timer; another thread has its own; a run sees what's waiting and can cancel it", () => {
@@ -175,7 +302,7 @@ test("cancelling a look-again that isn't waiting changes nothing, and the rest o
   );
 });
 
-test("a look-again coming due after its rule has gone is kept on record, starts nothing and doesn't stop the clock", () => {
+test("a look-again coming due after its rule has gone is kept on record, starts nothing, tells the owner and doesn't stop the clock", () => {
   clean();
   ingest("app", { id: "1", type: "feedback.new", subject: "#1" }, at(0));
   const job = claim("w1", at(0))!;
@@ -191,6 +318,16 @@ test("a look-again coming due after its rule has gone is kept on record, starts 
     assert.deepEqual(JSON.parse(event.routed), []);
     assert.deepEqual(all("SELECT id FROM timers WHERE event_id IS NULL"), [], "it doesn't come due again");
     assert.deepEqual(all("SELECT id FROM runs WHERE rule = '意见' AND state = 'queued'"), []);
+    assert.equal(
+      all("SELECT id FROM timers").length,
+      0,
+      "no run needs the timer context after the notice has been created",
+    );
+    const told = all<{ title: string; text: string }>("SELECT title, text FROM cards WHERE state = 'open'");
+    assert.equal(told.length, 1);
+    assert.equal(told[0].title, "意见");
+    assert.match(told[0].text, /规则「意见」不在了/);
+    assert.match(told[0].text, /看原站恢复了没有/);
   } finally {
     writeFileSync(rulesFile, before);
     reloadRules();
