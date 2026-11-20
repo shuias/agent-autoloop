@@ -11,5 +11,8 @@ services:
     volumes:
       # Codex refuses to start when CODEX_HOME is missing; a named volume creates it and keeps the login.
       - codex-home:/data/codex
+    extra_hosts:
+      # Reach a compatible API that runs on this host as http://host.docker.internal:<port>/v1.
+      - "host.docker.internal:host-gateway"
 volumes:
   codex-home:

@@ -87,6 +87,8 @@ $COMPOSE up --build -d
 
 `init` 会自动认出镜像里的 Codex，本人密钥同样按上面的步骤 2 取。设备码登录用不了时，把本机已经登录的 `~/.codex/auth.json` 放进 `codex-home` 卷再启动。要让 Agent 改代码，再把代码目录挂进 `hub` 服务的 `volumes`，`rules.json` 的 `cwd` 写容器里的路径。换别的 Agent 时，照这个阶段改安装命令和登录方式。
 
+接一个 OpenAI 兼容的第三方接口时，把它的地址写进 `codex-home` 卷里的 `config.toml`，例如 `openai_base_url = "https://example.com/v1"`；接口跑在这台电脑上时用 `http://host.docker.internal:<端口>/v1`，示例已经把这个名字映射到宿主机。只支持 Chat Completions 的接口要改成自定义 `model_providers` 并写 `wire_api = "chat"`。
+
 - 管理页面只监听 `127.0.0.1:3400`，只有这台电脑能打开。它握着本人密钥，能回答卡片、改规则，不要把它映射到局域网或公网。
 - 中台在容器里默认只监听 `127.0.0.1:3350`，管理页面用 `network_mode: "service:hub"` 和它共用网络，所以没有给中台映射端口。要让别的电脑的接单程序或来源直连中台，把卷里 `config.json` 的 `hub.listen` 改成 `0.0.0.0:3350`，再在 `ports` 里加一行 `"3350:3350"`；这样中台会向容器外的网络开放，前面要有 HTTPS 反向代理。
 - 配置、日志和密钥都在 `hub-data` 卷里。`docker compose down` 保留数据，加 `-v` 会连卷一起删。升级用 `git pull && docker compose up --build -d`；投影格式变化时启动会从日志重建，历史多时需要等一会。
