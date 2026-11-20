@@ -74,16 +74,18 @@ docker compose up --build -d
 
 打开 `http://127.0.0.1:3400`。页面能看状态、等你的卡片、轮次和定时规则，能回答卡片、结案、停掉一轮，能暂停、恢复、补跑和立刻跑一条规则；`rules.json` 也能在页面里改，保存前先用 `agent-autoloop check` 检查草稿，没过就不替换原文件。
 
-要在容器里直接跑 Agent，用 `examples/docker-agent/compose.yaml` 这份示例：它把 `hub` 的构建目标换成 `hub-codex`，在中台镜像里装上 Codex，登录信息放在 `hub-data` 卷里，重建镜像不用重新登录。
+要在容器里直接跑 Agent，用 `examples/docker-agent/compose.yaml` 这份示例：它把 `hub` 的构建目标换成 `hub-codex`，在中台镜像里装上 Codex，登录信息放在 `codex-home` 卷里，重建镜像不用重新登录。
 
 ```bash
 COMPOSE="docker compose -f compose.yaml -f examples/docker-agent/compose.yaml"
 $COMPOSE run --rm hub init --no-service
 $COMPOSE run --rm --entrypoint codex hub login --device-auth
+# 用 API Key 时换成下面这条；密钥从标准输入进，不出现在命令历史里
+printenv OPENAI_API_KEY | $COMPOSE run -T --rm --entrypoint codex hub login --with-api-key
 $COMPOSE up --build -d
 ```
 
-`init` 会自动认出镜像里的 Codex，本人密钥同样按上面的步骤 2 取。设备码登录用不了时，把本机已经登录的 `~/.codex/auth.json` 放进 `hub-data` 卷的 `codex/` 目录再启动。要让 Agent 改代码，再把代码目录挂进 `hub` 服务的 `volumes`，`rules.json` 的 `cwd` 写容器里的路径。换别的 Agent 时，照这个阶段改安装命令和登录方式。
+`init` 会自动认出镜像里的 Codex，本人密钥同样按上面的步骤 2 取。设备码登录用不了时，把本机已经登录的 `~/.codex/auth.json` 放进 `codex-home` 卷再启动。要让 Agent 改代码，再把代码目录挂进 `hub` 服务的 `volumes`，`rules.json` 的 `cwd` 写容器里的路径。换别的 Agent 时，照这个阶段改安装命令和登录方式。
 
 - 管理页面只监听 `127.0.0.1:3400`，只有这台电脑能打开。它握着本人密钥，能回答卡片、改规则，不要把它映射到局域网或公网。
 - 中台在容器里默认只监听 `127.0.0.1:3350`，管理页面用 `network_mode: "service:hub"` 和它共用网络，所以没有给中台映射端口。要让别的电脑的接单程序或来源直连中台，把卷里 `config.json` 的 `hub.listen` 改成 `0.0.0.0:3350`，再在 `ports` 里加一行 `"3350:3350"`；这样中台会向容器外的网络开放，前面要有 HTTPS 反向代理。

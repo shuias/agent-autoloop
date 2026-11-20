@@ -8,3 +8,8 @@ services:
   hub:
     build:
       target: hub-codex
+    volumes:
+      # Codex refuses to start when CODEX_HOME is missing; a named volume creates it and keeps the login.
+      - codex-home:/data/codex
+volumes:
+  codex-home:
