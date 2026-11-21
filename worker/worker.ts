@@ -24,9 +24,9 @@ import { HubError, type Hub } from "../protocol/client.ts";
 import { HOME } from "../host/home.ts";
 import { commandLine, processCommand } from "../host/command.ts";
 import type { Job } from "../protocol/job.ts";
-import { addUsage, type Notice, type Result } from "../protocol/validate.ts";
+import { addUsage, dateTime, type Notice, type Result } from "../protocol/validate.ts";
 import { adapterFor, type Adapter, type Reading, type Turn, type Usage } from "./agents.ts";
-import { promptFor, readMessage, repairPrompt, resultFrom } from "./contract.ts";
+import { fit, promptFor, readMessage, repairPrompt, resultFrom } from "./contract.ts";
 import { loadUsage, saveUsage, usageDelta } from "./usage.ts";
 
 const RUNS = path.join(HOME, "worker", "runs");
@@ -336,7 +336,7 @@ export function createWorker({
       save(entry);
       launch(entry, adapter, entry.prompt);
     } catch (error) {
-      endWith(entry, { outcome: "failed", error: String((error as Error).message ?? error).slice(0, 500) });
+      endWith(entry, { outcome: "failed", error: fit(String((error as Error).message ?? error), 500) });
     }
   }
 
@@ -398,7 +398,8 @@ export function createWorker({
       if (entry.repairs) return discardReceipt(entry, adapter, error);
       // The conversation may not be there to go on in, or something else has it open: this go carries on in a new one.
       // Not once the turn has started: a new one would do its work again. The hub tries again later, in this one.
-      if (entry.resume && !entry.triedFresh && entry.repairs === 0 && !seen.started) {
+      // Out of quota, a new one would fail the same way.
+      if (entry.resume && !entry.triedFresh && entry.repairs === 0 && !seen.started && !seen.limitedUntil) {
         log(`run ${entry.run}: couldn't go on in ${entry.resume} (${error}); starting a new session`);
         entry.triedFresh = true;
         entry.resume = null;
@@ -407,10 +408,12 @@ export function createWorker({
           launch(entry, adapter, entry.prompt);
           return;
         } catch (failure) {
-          return endWith(entry, { outcome: "failed", error: String(failure).slice(0, 500) });
+          return endWith(entry, { outcome: "failed", error: fit(String(failure), 500) });
         }
       }
-      return endWith(entry, { outcome: "failed", error: error.slice(0, 500), ...known, ...usage });
+      // The hub refuses a whole result with a time it can't read, and the run would wait for a result that never comes.
+      const limited = dateTime(seen.limitedUntil) && { limitedUntil: seen.limitedUntil };
+      return endWith(entry, { outcome: "failed", error: fit(error, 500), ...limited, ...known, ...usage });
     }
     const { result, problem } = resultFrom(readMessage(seen.text), { session, usage: entry.usage });
     if (entry.repairs && !problem && result.outcome === "failed") return discardReceipt(entry, adapter, result.error!);
@@ -437,7 +440,7 @@ export function createWorker({
     try {
       adapter = await adapterFor(entry.job.agent.use);
     } catch (error) {
-      return endWith(entry, { outcome: "failed", error: String((error as Error).message).slice(0, 500) });
+      return endWith(entry, { outcome: "failed", error: fit(String((error as Error).message), 500) });
     }
     if (entry.turn === 0) {
       // The worker stopped while starting it, before anything was launched.
@@ -448,7 +451,7 @@ export function createWorker({
         });
         return launch(entry, adapter, entry.prompt);
       } catch (error) {
-        return endWith(entry, { outcome: "failed", error: String((error as Error).message ?? error).slice(0, 500) });
+        return endWith(entry, { outcome: "failed", error: fit(String((error as Error).message ?? error), 500) });
       }
     }
     const { exit } = files(entry);
